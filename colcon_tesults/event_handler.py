@@ -1,4 +1,5 @@
 import atexit
+import json
 import os
 import xml.etree.ElementTree as ET
 
@@ -6,9 +7,18 @@ from colcon_core.event.job import JobEnded
 from colcon_core.event_handler import EventHandlerExtensionPoint
 from colcon_core.plugin_system import satisfies_version
 
+from colcon_tesults import __version__
+
+
+_METADATA = {
+    'integration_name': 'colcon-tesults',
+    'integration_version': __version__,
+    'test_framework': 'colcon',
+}
+
 
 class TesultsEventHandler(EventHandlerExtensionPoint):
-    """Upload test results to Tesults after colcon test completes."""
+    """Report test results after colcon test completes."""
 
     ENABLED_BY_DEFAULT = True
 
@@ -29,7 +39,7 @@ class TesultsEventHandler(EventHandlerExtensionPoint):
             return
         if not self.enabled:
             return
-        if not os.environ.get('TESULTS_TARGET'):
+        if not os.environ.get('TESULTS_TARGET') and not _output_file():
             return
 
         build_base = getattr(getattr(self.context, 'args', None), 'build_base', 'build')
@@ -45,19 +55,16 @@ class TesultsEventHandler(EventHandlerExtensionPoint):
                 self._cases.extend(_parse_junit(path))
 
     def _upload(self):
-        if not self.enabled or not self._cases:
+        if not self.enabled:
             return
         target = os.environ.get('TESULTS_TARGET', '')
-        if not target:
+        output_file = _output_file()
+        if not target and not output_file:
             return
 
         config_path = os.environ.get('TESULTS_CONFIG', '')
         if config_path:
             target = _lookup_config(config_path, target)
-
-        if self._tesults is None:
-            print('colcon-tesults: tesults package not installed, skipping upload')
-            return
 
         cases = list(self._cases)
 
@@ -78,8 +85,23 @@ class TesultsEventHandler(EventHandlerExtensionPoint):
                 build_case['reason'] = build_reason
             cases.append(build_case)
 
+        data = {
+            'target': target,
+            'results': {'cases': cases},
+            'metadata': dict(_METADATA),
+        }
+
+        if output_file:
+            _write_output_file(output_file, data)
+
+        if not target or not cases:
+            return
+        if self._tesults is None:
+            print('colcon-tesults: tesults package not installed, skipping upload')
+            return
+
         print('colcon-tesults: uploading results...')
-        resp = self._tesults.results({'target': target, 'results': {'cases': cases}})
+        resp = self._tesults.results(data)
         print(f"colcon-tesults: success: {resp['success']}")
         if not resp['success']:
             print(f"colcon-tesults: message: {resp['message']}")
@@ -87,6 +109,31 @@ class TesultsEventHandler(EventHandlerExtensionPoint):
             print(f"colcon-tesults: warning: {w}")
         for e in resp.get('errors', []):
             print(f"colcon-tesults: error: {e}")
+
+
+def _output_file():
+    value = os.environ.get('TESULTS_OUTPUT_FILE', '')
+    return value.strip()
+
+
+def _write_output_file(output_file, data):
+    try:
+        absolute_path = os.path.abspath(output_file)
+        output_directory = os.path.dirname(absolute_path)
+        if output_directory:
+            os.makedirs(output_directory, exist_ok=True)
+        local_data = {
+            'target': '',
+            'results': data['results'],
+            'metadata': data['metadata'],
+        }
+        with open(absolute_path, 'w') as output:
+            json.dump(local_data, output, indent=2)
+        print(f'colcon-tesults: results written to {absolute_path}')
+        return True
+    except Exception as error:
+        print(f'colcon-tesults: error writing results file: {error}')
+        return False
 
 
 def _parse_junit(path):

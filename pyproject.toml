@@ -4,20 +4,19 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "colcon-tesults"
-version = "1.0.0"
-description = "colcon event handler that uploads test results to Tesults"
-license = {text = "Apache-2.0"}
+version = "1.1.0"
+description = "colcon event handler that reports test results with Tesults"
+license = "Apache-2.0"
 readme = "README.md"
 requires-python = ">=3.8"
 keywords = ["colcon", "tesults", "testing", "ros2", "robotics"]
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
 ]
 dependencies = [
     "colcon-core",
-    "tesults",
+    "tesults>=1.2.2,<2",
 ]
 
 [project.entry-points."colcon_core.event_handler"]
